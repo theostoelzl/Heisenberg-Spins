@@ -1,5 +1,5 @@
 /*
-COMPILE THE CODE WITH: g++ -std=c++11 -g -O3  CH_MC_heatbath.cpp -o MC.o
+COMPILE THE CODE WITH: g++ -std=c++11 -g -O3  HL_MC_heatbath_oddeven.cpp -o HL_MC_oddeven.o
  (change -mcmodel=large if you want bigger Nh grid)
 RUN THE CODE WITH: ./MC.o [spin input file] [temp] [rng_seed]
  ([spin input file]=none if you want to start from a random arrangement)
@@ -32,11 +32,11 @@ double D = 0;
 
 //grid of points for CDF integral
 #define Nh 10001
-#define Nm 1024 //ALWAYS 2^N (where N is some integer)
+#define Nm 2048 //ALWAYS 2^N (where N is some integer)
 double CDF[Nh][Nm]; //cumulative distribution function
 
 double pi = 3.141592653589793238463;
-double integral_bound = 7.0;
+double integral_bound = 4.0;
 
 //a fudge factor that should be ignored if possible
 double x;
@@ -124,6 +124,11 @@ int main(int argc, char *argv[]){
     uniform_int_distribution<int> site_picker3(0,n3-1);
     uniform_real_distribution<double> uni_dist(0,1);
     
+    // echo timestamps
+    time_t present;
+    present = time(NULL);
+    cout << "Time: " << present << endl;
+
     //assigning initial spins
     cout << "(*------------*)\n";
     if(spinin_file=="none"){
@@ -159,6 +164,9 @@ int main(int argc, char *argv[]){
     }
     cout << "DONE\n";
     
+    present = time(NULL);
+    cout << "Time: " << present << endl;
+    
 
     //setting up probability distribution sampler
     double hmin=-integral_bound*Jtot, hmax=integral_bound*Jtot;
@@ -166,6 +174,17 @@ int main(int argc, char *argv[]){
     cout << "(*) Generating cumulative distribution function... " << flush;
     gen_CDF(hmin, hmax, u0, umin, mmin, kT);
     cout << "DONE\n";
+    
+    present = time(NULL);
+    cout << "Time: " << present << endl;
+
+    fstream cdf_file;
+    /*cdf_file.open("cdf.txt", fstream::app);
+    for (int i=0; i<Nm; i++) {
+            cdf_file << CDF[70000][i] << endl;
+    }*/
+    cdf_file.close();
+    //cout << "DONE\n";
 
     //Debug for testing probability distribution
     //ofstream foutp;
@@ -204,6 +223,9 @@ int main(int argc, char *argv[]){
     double enX=total_X(spins, J, u0, umin, mmin);
     double enU=total_U(spins, J, u0, umin, mmin);
     double toten=enX+enU;
+    double abs_magn = 0;
+    double abs_magn_stdev_mag = 0;
+    double total_magn = 0;
     int avsamp=0; //counts the number of data points in average
     
     cout << "(*) Starting Monte Carlo simulation at temperature " << kT/(mmin*mmin) << "... " << flush;
@@ -214,7 +236,7 @@ int main(int argc, char *argv[]){
             int a=site_picker1(rng);
             int b=site_picker2(rng);
             int c=site_picker3(rng);
-            double s_old[3] ={};
+            double s_old[3] = {};
             for(int x=0;x<3;x++){
             	s_old[x]=spins[a][b][c][x]; 
             }
@@ -227,39 +249,46 @@ int main(int argc, char *argv[]){
             double s_old_sq = dot(s_old,s_old);
             double eu_before= (u0+umin)/(mmin*mmin)*(-2*s_old_sq + s_old_sq*s_old_sq/(mmin*mmin));
             double len_before=ex_before+eu_before;
-          
+         	
+	    double s_new[3] = {};
+	    double mag_new; 
             //---- pick new spin direction from distribution-----------------------
+	    if (i%2 == 0) {
+		    double r_theta=uni_dist(rng);
+		    double r_phi = uni_dist(rng);
+		    //Doesn't change magnitude of vectors
+		    mapping_function(h,J,hmin,hmax,r_theta,r_phi,kT/(mmin*mmin),s_new,s_old);
+		    //debug<<mapping_function(h,J,hmin,hmax,r_theta,r_phi,kT,s_new)<<" ";
+		    //debug<<mag(s_new)<<" ";
+		    //scalmul(s_new,mag_old);
+		    //---------------------------------------------------------------------
+		    mag_new = mag_old;
+	    }
 
-            double r_theta=uni_dist(rng);
-            double r_phi = uni_dist(rng);
-            double s_new[3] = {};
-            //Doesn't change magnitude of vectors
-            mapping_function(h,J,hmin,hmax,r_theta,r_phi,kT/(mmin*mmin),s_new,s_old);
-            //debug<<mapping_function(h,J,hmin,hmax,r_theta,r_phi,kT,s_new)<<" ";
-            //debug<<mag(s_new)<<" ";
-            //scalmul(s_new,mag_old);
-            //---------------------------------------------------------------------
 
-
-
-
+	    else {
             //---- pick new magnitude from distribution----------------------------
-            double r = uni_dist(rng);
-            //double h_scal = mag_old*dot(h,s_new);
-            double h_scal = dot(h, s_new);
-	    //debug<<h_scal<<" ";
-            double mag_new=int_M_adaptive(h_scal,hmin, hmax, r);
-            //debug<<mag_new<<endl;;
-            //normalise(s_old);
-            //scalmul(s_old,mag_new);
-            //debug<<mag_new<<endl;
-            //----------------------------------------------------------------------
-
-            scalmul(s_new,mag_new);
-
-
+		    for (int x=0; x<3; x++) {
+			    s_new[x] = s_old[x];
+		    }
+		    scalmul(s_new, 1/mag_old);
+		    double r = uni_dist(rng);
+		    //double h_scal = mag_old*dot(h,s_new);
+		    double h_scal = dot(h, s_new);
+		    double h_mag = mag(h);
+		    //debug<<h_scal<<" ";
+		    //cout << mag_old << endl;
+		    //cout << h_mag << endl;
+		    //cout << h_scal << endl;
+		    mag_new=int_M_adaptive(h_scal, hmin, hmax, r);
+		    //debug<<mag_new<<endl;;
+		    //normalise(s_old);
+		    //scalmul(s_old,mag_new);
+		    //debug<<mag_new<<endl;
+		    //----------------------------------------------------------------------
+	    }
             
-
+	    scalmul(s_new,mag_new);
 
             //compute change in energy and assign new spin
             double ex_after =-dot(s_new,h);
@@ -282,28 +311,47 @@ int main(int argc, char *argv[]){
             en2_avg+=toten*toten;
             ex2_avg+=enX*enX;
             eu2_avg+=enU*enU;
-			double s[3]={};
+	    double s[3]={};
+	    // intermediate absolute and total magn sums
+	    double abs_magn_int = 0;
+	    double total_magn_int[3] = {};
             for(int a=0; a<n1; a++){
                 for(int b=0; b<n2; b++){
                     for(int c=0; c<n3; c++){
                     	for(int x=0;x<3;x++){
 	                        s[x]=spins[a][b][c][x];
-	                        si_avg[a][b][c][x]+=s[x];
-                    	}
-                        si2_avg[a][b][c]+=dot(s,s);	
-//                        if(a==0 && b==0){ //correlation function
-//                            for(int m=0; m<n3; m++){
-//                                s_corr[c]+=spins[a][b][c]*spins[a][b][PBC(m+c,n3)];
-//                            }
-//                        }
-                    }
+	                        si_avg[a][b][c][x] += s[x];
+				total_magn_int[x] += s[x];
+			}
+                       	si2_avg[a][b][c]+=dot(s,s);	
+                    	abs_magn_int += mag(s);
+		    }
                 }
             }
+	    abs_magn += abs_magn_int/(n1*n2*n3*avsweeps);
+		// intermediate stdev sum
+	    double abs_magn_stdev_mag_int = 0;
+	    for(int a=0; a<n1; a++){
+                for(int b=0; b<n2; b++){
+                    for(int c=0; c<n3; c++){
+		        // avg of sum of squares
+	    		abs_magn_stdev_mag_int += (mag(spins[a][b][c]) - abs_magn_int/(n1*n2*n3))*(mag(spins[a][b][c]) - abs_magn_int/(n1*n2*n3))/(n1*n2*n3);
+		    }
+		}
+	    }
+	    // take sqrt for stdev
+	    abs_magn_stdev_mag += sqrt(abs_magn_stdev_mag_int)/avsweeps;
+
+	    // add intermediate to avg total magnitude
+	    total_magn += mag(total_magn_int)/(n1*n2*n3);
         }
         
     }
     cout << "DONE\n(*------------*)\n";
-   
+
+    present = time(NULL);
+    cout << "Time: " << present << endl;
+    
     //output streams
     ofstream enavg_out;
     ofstream en2avg_out;
@@ -311,6 +359,8 @@ int main(int argc, char *argv[]){
     ofstream eS2avg_out;
     ofstream savg_out;
     ofstream s2avg_out;
+    ofstream abs_magn_out;
+    ofstream total_magn_out;
     
     ofstream s_even_avg_out;
     ofstream s_odd_avg_out;
@@ -330,6 +380,8 @@ int main(int argc, char *argv[]){
     eS2avg_out.open("energysplit2.txt", fstream::app);
     savg_out.open("spin_total.txt", fstream::app);
     s2avg_out.open("spin2_total.txt", fstream::app);
+    abs_magn_out.open("abs_magnetisation.txt", fstream::app);
+    total_magn_out.open("total_magnetisation.txt", fstream::app);
 
     s_even_avg_out.open("spin_total_even.txt",fstream::app);
     s_odd_avg_out.open("spin_total_odd.txt",fstream::app);
@@ -352,13 +404,13 @@ int main(int argc, char *argv[]){
         for(int j=0; j<n2; j++){
             for(int k=0; k<n3; k++){
                 s2_avg+=si2_avg[i][j][k];
-                si2avg_out << si2_avg[i][j][k]/avsweeps << "\t";
+                //si2avg_out << si2_avg[i][j][k]/avsweeps << "\t";
             	for (int z=0;z<3;z++){
 	                s_avg[z]+=si_avg[i][j][k][z];
-	                siavg_out << si_avg[i][j][k][z]/avsweeps << "\t";
+	                //siavg_out << si_avg[i][j][k][z]/avsweeps << "\t";
 	                s_out << spins[i][j][k][z] << endl;
 	                if(i==0 && j==0){
-	                    scorr_out << s_corr[k]/avsweeps/(double)n3 << "\t";
+	                    //scorr_out << s_corr[k]/avsweeps/(double)n3 << "\t";
 	                }
                 }      
                 if((i+j+k)%2==0){
@@ -393,6 +445,37 @@ int main(int argc, char *argv[]){
     s_even_avg_out<<endl;
     s_odd_avg_out<<endl;
 
+    /*
+    double abs_magn_sum;
+    abs_magn_sum = 0;
+    double abs_magn_stdev_sum;
+    abs_magn_stdev_sum = 0;
+    for (int i=0; i<sweeps; i++) {
+        if (i >= eqsweeps) {
+                abs_magn_sum += abs_magn[i];
+		abs_magn_stdev_sum += abs_magn_stdev_mag[i];
+        }
+    }*/
+    double avg_abs_magn = abs_magn;
+    double avg_abs_magn_stdev_mag = abs_magn_stdev_mag;
+    /*double avg_abs_magn = abs_magn_sum/avsweeps;
+    double avg_abs_magn_stdev_mag = abs_magn_stdev_sum/avsweeps;
+    double avg_abs_magn_stdev_sweeps;
+    avg_abs_magn_stdev_sweeps = 0; 
+    for (int i=0; i<sweeps; i++) {
+	if (i >= eqsweeps) {
+    		avg_abs_magn_stdev_sweeps += (abs_magn[i] - avg_abs_magn)*(abs_magn[i] - avg_abs_magn)/avsweeps;
+	}
+    }
+    avg_abs_magn_stdev_sweeps = sqrt(avg_abs_magn_stdev_sweeps);
+	*/
+
+    abs_magn_out << kT/(mmin*mmin) << "\t" << avg_abs_magn;
+    abs_magn_out << "\t" << avg_abs_magn_stdev_mag << endl;
+    //abs_magn_out << "\t" << avg_abs_magn_stdev_sweeps << endl;
+    
+    total_magn_out << kT/(mmin*mmin) << "\t" << total_magn/avsweeps << endl;
+
     //s2avg_out << kT/(mmin*mmin) << "\t" << s2_avg/avsweeps << endl;
     //output both average of spin magnitudes^2 and magnitude^2 of average spin
     s2avg_out << kT/(mmin*mmin) << "\t" << s2_avg/(avsweeps) <<" "<< dot(s_avg,s_avg) << endl;
@@ -402,6 +485,8 @@ int main(int argc, char *argv[]){
     enavg_out.close();
     en2avg_out.close();
     savg_out.close();
+    abs_magn_out.close();
+    total_magn_out.close();
     s2avg_out.close();
     s_even_avg_out.close();
     s_odd_avg_out.close();
@@ -463,13 +548,13 @@ void local_field(double arr[n1][n2][n3][3], double js[3],double D, int i, int j,
         }
     }
 
-
     //include next nearest neighbours
     for (int x=0;x<3;x++){
         h[x]-=0.0625*(js[0]*(arr[i][j][PBC(k+2,n3)][x]+arr[i][j][PBC(k-2,n3)][x]) +
                       js[1]*(arr[i][PBC(j+2,n2)][k][x]+arr[i][PBC(j-2,n2)][k][x]) +
                       js[2]*(arr[PBC(i+2,n1)][j][k][x]+arr[PBC(i-2,n1)][j][k][x]));
     }
+
     cross(arr[i][j][PBC(k+2,n3)],n_ij[0],dms[0]);
     cross(arr[i][j][PBC(k-2,n3)],n_ij[1],dms[1]);
     cross(arr[i][PBC(j+2,n2)][k],n_ij[2],dms[2]);
@@ -750,7 +835,8 @@ double boltz(double h_cos_theta, double m, double u0, double umin, double mmin, 
     //double m_mag = mag(m);
     //return exp( -(-h_cos_theta*m +x+ u0+(u0+umin)*m*m/(mmin*mmin)*(m*m/(mmin*mmin)-2))/kT );
     //return m*m*exp( -(x+u0-h_cos_theta*m+(u0+umin)*m*m/(mmin*mmin)*(m*m/(mmin*mmin)-2))/kT);
-    return m*m*exp( -(x+u0+m*(-h_cos_theta + (u0+umin)*(-2*m + m*m*m/(mmin*mmin))/(mmin*mmin)))/kT );
+    //return m*m*exp( -(x+u0+m*(-h_cos_theta + (u0+umin)*(-2*m + m*m*m/(mmin*mmin))/(mmin*mmin)))/kT );
+	return exp( -(x+u0+m*(-h_cos_theta + (u0+umin)*(-2*m + m*m*m/(mmin*mmin))/(mmin*mmin)))/kT );
 }
 
 //partition function integral over m
